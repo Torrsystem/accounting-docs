@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>เช็คลิสต์ + รวมเอกสารส่งบัญชี (Supabase sync)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root{
+    --ink:#25324A; --paper:#FAF7F1; --paper2:#FFFEFB;
+    --kraft:#C9A66B; --kraft-dark:#7A5D30;
+    --stamp-red:#A73529; --stamp-green:#2F5C42;
+    --line:#E1DCCE; --muted:#5F5749;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans Thai','IBM Plex Mono',sans-serif;-webkit-font-smoothing:antialiased;}
+  .app{max-width:860px;margin:0 auto;padding:20px 16px 100px;}
+
+  header{display:flex;flex-direction:column;gap:14px;padding-bottom:18px;margin-bottom:18px;border-bottom:3px solid var(--ink);}
+  .title-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  h1{font-family:'Noto Serif Thai',serif;font-size:22px;font-weight:700;margin:0;}
+  .subtitle{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.5;}
+  .month-picker{display:flex;align-items:center;gap:8px;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:14px;}
+  .nav-btn{border:1.5px solid var(--ink);background:var(--paper2);border-radius:2px;cursor:pointer;padding:5px 9px;}
+  .summary-bar{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);}
+  .summary-track{flex:1;height:6px;background:var(--line);border-radius:3px;overflow:hidden;}
+  .summary-fill{height:100%;background:var(--stamp-green);transition:width .3s ease;}
+  .summary-count{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--ink);white-space:nowrap;}
+  .note-box{background:#FFF7E8;border:1px solid var(--kraft);border-radius:4px;padding:8px 10px;font-size:12px;color:var(--kraft-dark);line-height:1.5;}
+
+  .sb-panel{background:var(--paper2);border:1.5px solid var(--ink);border-radius:6px;padding:12px;margin-bottom:4px;}
+  .sb-head{display:flex;align-items:center;justify-content:space-between;cursor:pointer;}
+  .sb-head .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
+  .status-dot.on{background:var(--stamp-green);}
+  .status-dot.off{background:var(--stamp-red);}
+  .sb-title{font-family:'Noto Serif Thai',serif;font-weight:600;font-size:14px;}
+  .sb-body{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
+  .sb-body input{border:1.5px solid var(--ink);border-radius:3px;padding:7px 9px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--paper);}
+  .sb-row{display:flex;gap:8px;}
+  .sb-row input{flex:1;min-width:0;}
+  .sb-body button{align-self:flex-start;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:12.5px;background:var(--ink);color:var(--paper);border:none;border-radius:3px;padding:8px 14px;cursor:pointer;}
+  .sb-help{font-size:11px;color:var(--muted);line-height:1.6;}
+  .sb-msg{font-size:12px;margin-top:4px;}
+  .sb-msg.err{color:var(--stamp-red);}
+  .sb-msg.ok{color:var(--stamp-green);}
+  .sb-sql{background:var(--ink);color:#D8E8DC;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:10px;border-radius:4px;overflow-x:auto;white-space:pre;line-height:1.6;}
+
+  .category{margin-bottom:22px;}
+  .cat-tab{display:inline-flex;align-items:center;gap:8px;background:var(--kraft-dark);color:#fff;font-family:'Noto Serif Thai',serif;font-weight:600;font-size:14.5px;padding:6px 14px 6px 10px;border-radius:2px 10px 10px 2px;}
+  .cat-tab .del-cat{background:none;border:none;color:rgba(255,255,255,.75);cursor:pointer;font-size:15px;line-height:1;padding:0;margin-left:2px;}
+  .cat-tab .del-cat:hover{color:#fff;}
+  .items{background:var(--paper2);border:1.5px solid var(--ink);border-top:none;border-radius:0 0 6px 6px;}
+  .item-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);position:relative;}
+  .item-row:last-child{border-bottom:none;}
+  .check-btn{flex:none;width:26px;height:26px;border-radius:50%;border:2px solid var(--ink);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--stamp-green);font-size:15px;font-weight:700;margin-top:2px;}
+  .check-btn.done{background:var(--stamp-green);border-color:var(--stamp-green);color:#fff;}
+  .item-body{flex:1;min-width:0;}
+  .item-name-input{width:100%;border:none;background:transparent;font-family:'Noto Sans Thai',sans-serif;font-weight:600;font-size:14.5px;color:var(--ink);padding:2px 0;}
+  .item-name-input:focus{outline:none;border-bottom:1px dashed var(--kraft-dark);}
+  .file-row{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap;}
+  .file-btn{font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:var(--kraft-dark);background:none;border:1px dashed var(--kraft-dark);border-radius:3px;padding:4px 9px;cursor:pointer;}
+  .file-btn:hover{background:rgba(201,166,107,0.12);}
+  .file-name{font-size:11.5px;color:var(--stamp-green);font-family:'IBM Plex Mono',monospace;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .file-size{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+  .file-tag{font-size:10px;font-family:'IBM Plex Mono',monospace;padding:1px 6px;border-radius:8px;}
+  .file-tag.synced{background:#E4EFE7;color:var(--stamp-green);}
+  .file-tag.pending{background:#FBEEDD;color:var(--kraft-dark);}
+  .file-tag.error{background:#F6E1DE;color:var(--stamp-red);}
+  .compress-note{width:100%;font-size:10.5px;color:var(--kraft-dark);font-style:italic;}
+  .clear-file{background:none;border:none;color:var(--stamp-red);font-size:12px;cursor:pointer;padding:0 2px;}
+  .del-item{flex:none;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:4px;}
+  .del-item:hover{color:var(--stamp-red);}
+  .stamp{position:absolute;top:6px;right:38px;font-family:'Noto Serif Thai',serif;font-weight:700;font-size:11px;color:var(--stamp-green);border:2px solid var(--stamp-green);border-radius:4px;padding:1px 8px;transform:rotate(-8deg);opacity:0.85;pointer-events:none;letter-spacing:1px;}
+
+  .add-item-row{display:flex;align-items:center;gap:8px;padding:8px 12px;}
+  .add-item-row input{flex:1;border:1px dashed var(--line);border-radius:3px;padding:6px 8px;font-family:'Noto Sans Thai',sans-serif;font-size:13.5px;background:transparent;}
+  .add-item-row button{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;background:var(--ink);color:var(--paper);border:none;border-radius:3px;padding:7px 12px;cursor:pointer;}
+
+  .add-cat-row{display:flex;gap:8px;margin-top:10px;}
+  .add-cat-row input{flex:1;border:1.5px solid var(--ink);border-radius:3px;padding:8px 10px;font-family:'Noto Serif Thai',serif;font-size:14px;background:var(--paper2);}
+  .add-cat-row button{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;background:var(--kraft-dark);color:#fff;border:none;border-radius:3px;padding:8px 14px;cursor:pointer;}
+
+  .merge-panel{margin-top:26px;border-top:3px solid var(--ink);padding-top:16px;}
+  .merge-panel h2{font-family:'Noto Serif Thai',serif;font-size:16px;margin:0 0 8px;}
+  .merge-status{font-size:12.5px;color:var(--muted);margin-bottom:10px;}
+  .merge-actions{display:flex;gap:10px;flex-wrap:wrap;}
+  .btn-merge{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;background:var(--stamp-green);color:#fff;border:none;border-radius:3px;padding:10px 16px;cursor:pointer;}
+  .btn-merge:disabled{background:var(--line);color:var(--muted);cursor:not-allowed;}
+  .result-box{margin-top:14px;padding:12px;border:1.5px dashed var(--stamp-green);border-radius:4px;background:#F2F7F3;}
+  .result-box a.download-link{display:inline-block;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;background:var(--ink);color:var(--paper);border-radius:3px;padding:9px 14px;text-decoration:none;margin-right:8px;}
+  .result-box .print-hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5;}
+  embed.pdf-preview{width:100%;height:420px;border:1px solid var(--line);border-radius:4px;margin-top:10px;}
+
+  .toolbar{position:sticky;bottom:0;left:0;right:0;display:flex;gap:10px;justify-content:center;padding:12px;margin-top:20px;background:linear-gradient(180deg, transparent, var(--paper) 30%);}
+  .toolbar button{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;border-radius:3px;padding:10px 18px;cursor:pointer;border:1.5px solid var(--ink);}
+  .btn-reset{background:transparent;color:var(--stamp-red);border-color:var(--stamp-red);}
+
+  .empty-note{padding:16px 12px;color:var(--muted);font-size:13px;font-style:italic;}
+  .loading{padding:40px;text-align:center;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
+
+  @media print{
+    body{background:#fff;}
+    .toolbar,.file-btn,.clear-file,.del-item,.del-cat,.add-item-row,.add-cat-row,.month-picker .nav-btn,.merge-panel .merge-actions,.note-box,.sb-panel{display:none !important;}
+    .app{padding:0;max-width:100%;}
+  }
+</style>
+</head>
+<body>
+<div id="root" class="app"><div class="loading">กำลังโหลด...</div></div>
+
+<script>
+const THAI_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+
+const DEFAULT_TEMPLATE = [
+  {cat:"ใบกำกับภาษี", items:["ใบกำกับภาษีขาย","ใบกำกับภาษีซื้อ"]},
+  {cat:"การเงิน", items:["ใบเสร็จรับเงิน","ใบสำคัญจ่าย","สลิป/รายการเดินบัญชีธนาคาร"]},
+  {cat:"ภาษีหัก ณ ที่จ่าย", items:["หนังสือรับรองหัก ณ ที่จ่าย","แบบ ภ.ง.ด. ที่ยื่นแล้ว"]},
+  {cat:"อื่นๆ", items:["เอกสารอื่นๆ (ถ้ามี)"]},
+];
+
+const IMG_COMPRESS_THRESHOLD = 2 * 1024 * 1024;
+const PDF_COMPRESS_THRESHOLD = 10 * 1024 * 1024;
+const IMG_TARGET_BYTES = 1.5 * 1024 * 1024;
+const IMG_MAX_DIM = 2500;
+
+function monthKey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0"); }
+function uid(){ return Math.random().toString(36).slice(2,10); }
+function sanitizeName(s){ return String(s).replace(/[^a-zA-Z0-9ก-๙._-]/g,'_').slice(0,80); }
+function fmtSize(bytes){
+  if(bytes < 1024) return bytes + " B";
+  if(bytes < 1024*1024) return (bytes/1024).toFixed(0) + " KB";
+  return (bytes/1024/1024).toFixed(1) + " MB";
+}
+
+function buildDefaultData(){
+  return DEFAULT_TEMPLATE.map(c => ({
+    id: uid(), name: c.cat,
+    items: c.items.map(name => ({
+      id: uid(), name, done:false,
+      fileName:"", fileType:"", fileSize:0, compressedNote:"",
+      sbPath:"", syncStatus:""
+    }))
+  }));
+}
+
+const fileBytesStore = {}; // in-memory only per session
+
+let state = {
+  monthDate: new Date(),
+  categories: null,
+  loaded: false,
+  mergedUrl: null,
+  merging:false,
+  mergeError:"",
+  sb: {url:"", anonKey:"", bucket:"accounting-docs", folder:"เอกสารบัญชี"},
+  sbPanelOpen: false,
+  sbMsg: "",
+  sbMsgType: ""
+};
+
+async function loadJSON(key){
+  try{ const res = await window.storage.get(key, false); if(res && res.value) return JSON.parse(res.value); }
+  catch(e){}
+  return null;
+}
+async function saveJSON(key, obj){
+  try{ await window.storage.set(key, JSON.stringify(obj), false); }
+  catch(e){ console.error("save failed", key, e); }
+}
+async function loadMonth(key){ return await loadJSON('checklist:' + key); }
+async function saveMonth(key, categories){ await saveJSON('checklist:' + key, categories); }
+async function persist(){ await saveMonth(monthKey(state.monthDate), state.categories); }
+async function loadSbSettings(){ const s = await loadJSON('supabase-settings'); if(s) state.sb = Object.assign(state.sb, s); }
+async function saveSbSettings(){ await saveJSON('supabase-settings', state.sb); }
+function sbConfigured(){ return !!(state.sb.url && state.sb.anonKey && state.sb.bucket); }
+function sbApiBase(){ return state.sb.url.replace(/\/$/,'') + '/storage/v1'; }
+function sbHeaders(contentType){
+  const h = {'apikey': state.sb.anonKey, 'Authorization': 'Bearer ' + state.sb.anonKey};
+  if(contentType) h['Content-Type'] = contentType;
+  return h;
+}
+function sbPathFor(item){
+  const folder = state.sb.folder ? state.sb.folder.replace(/^\/|\/$/g,'') + '/' : '';
+  return folder + monthKey(state.monthDate) + '/' + item.id + '-' + sanitizeName(item.fileName || item.name);
+}
+function sbObjectUrl(path){
+  return sbApiBase() + '/object/' + encodeURIComponent(state.sb.bucket) + '/' + path.split('/').map(encodeURIComponent).join('/');
+}
+
+// ---------- compression helpers ----------
+async function compressImage(file, targetBytes=IMG_TARGET_BYTES, maxDim=IMG_MAX_DIM){
+  const bitmap = await createImageBitmap(file);
+  let {width,height} = bitmap;
+  const scale = Math.min(1, maxDim/Math.max(width,height));
+  width = Math.max(1,Math.round(width*scale));
+  height = Math.max(1,Math.round(height*scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  let quality = 0.85;
+  let blob = await new Promise(res=>canvas.toBlob(res, 'image/jpeg', quality));
+  while(blob.size > targetBytes && quality > 0.35){
+    quality -= 0.1;
+    blob = await new Promise(res=>canvas.toBlob(res, 'image/jpeg', quality));
+  }
+  const buf = await blob.arrayBuffer();
+  return { bytes: new Uint8Array(buf), type: 'image/jpeg', name: file.name.replace(/\.[^.]+$/,'') + '.jpg' };
+}
+async function compactPdf(bytes){
+  try{
+    const doc = await PDFLib.PDFDocument.load(bytes);
+    const out = await doc.save({ useObjectStreams: true });
+    return out;
+  }catch(e){ console.warn('compact pdf failed', e); return bytes; }
+}
+
+// ---------- Supabase Storage (simple REST, binary in/out) ----------
+let sbUploadQueue = Promise.resolve();
+function sbUploadFile(item, bytes, mimeType){
+  sbUploadQueue = sbUploadQueue.then(() => sbUploadFileInner(item, bytes, mimeType));
+  return sbUploadQueue;
+}
+async function sbUploadFileInner(item, bytes, mimeType){
+  item.syncStatus = "pending"; render();
+  try{
+    const path = sbPathFor(item);
+    const url = sbObjectUrl(path);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: Object.assign(sbHeaders(mimeType || 'application/octet-stream'), {'x-upsert':'true'}),
+      body: bytes
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error('HTTP ' + res.status + ': ' + t.slice(0,150));
+    }
+    item.sbPath = path;
+    item.syncStatus = "synced";
+  }catch(e){
+    console.error("Supabase upload error", e);
+    item.syncStatus = "error";
+    state.sbMsg = "อัปโหลดไป Supabase ไม่สำเร็จ: " + e.message;
+    state.sbMsgType = "err";
+  }
+  render(); persist();
+}
+
+async function sbFetchFile(item){
+  if(!item.sbPath) return null;
+  try{
+    const res = await fetch(sbObjectUrl(item.sbPath), {headers: sbHeaders()});
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    fileBytesStore[item.id] = {bytes, type:item.fileType, name:item.fileName};
+    return bytes;
+  }catch(e){ console.error("Supabase fetch error for", item.name, e); return null; }
+}
+async function autoFetchMonthFiles(){
+  for(const cat of state.categories){
+    for(const item of cat.items){
+      if(item.sbPath && !fileBytesStore[item.id]){
+        await sbFetchFile(item);
+        render();
+      }
+    }
+  }
+}
+
+async function init(){
+  await loadSbSettings();
+  const key = monthKey(state.monthDate);
+  const existing = await loadMonth(key);
+  state.categories = existing || buildDefaultData();
+  state.loaded = true;
+  render();
+  if(sbConfigured()) autoFetchMonthFiles();
+}
+async function changeMonth(delta){
+  const d = new Date(state.monthDate);
+  d.setMonth(d.getMonth() + delta);
+  state.monthDate = d; state.loaded = false; state.mergedUrl = null;
+  render();
+  const key = monthKey(d);
+  const existing = await loadMonth(key);
+  state.categories = existing || buildDefaultData();
+  state.loaded = true;
+  render();
+  if(sbConfigured()) autoFetchMonthFiles();
+}
+
+function toggleSbPanel(){ state.sbPanelOpen = !state.sbPanelOpen; render(); }
+function updateSbField(field, value){ state.sb[field] = value; }
+
+async function submitSbSettings(){
+  state.sbMsg = ""; render();
+  if(!state.sb.url || !state.sb.anonKey || !state.sb.bucket){
+    state.sbMsg = "กรอก Project URL, anon key และชื่อ bucket ให้ครบ"; state.sbMsgType = "err"; render(); return;
+  }
+  try{
+    const res = await fetch(sbApiBase() + '/object/list/' + encodeURIComponent(state.sb.bucket), {
+      method:'POST', headers: sbHeaders('application/json'),
+      body: JSON.stringify({prefix:'', limit:1})
+    });
+    if(!res.ok){
+      const t = await res.text();
+      throw new Error('เชื่อมต่อไม่ได้ (HTTP ' + res.status + '): ' + t.slice(0,150) + ' — ตรวจสอบ URL/anon key/ชื่อ bucket และ policy');
+    }
+    await saveSbSettings();
+    state.sbMsg = "เชื่อมต่อ Supabase สำเร็จ ✓";
+    state.sbMsgType = "ok";
+    render();
+    autoFetchMonthFiles();
+  }catch(e){
+    state.sbMsg = (e.message && e.message.toLowerCase().includes('failed to fetch')) ? "เชื่อมต่อ Supabase ไม่สำเร็จ (อาจถูกบล็อกโดยแซนด์บ็อกซ์ในแชท ลองดาวน์โหลดไฟล์แล้วเปิดเองนอกแชท)" : e.message;
+    state.sbMsgType = "err";
+    render();
+  }
+}
+
+function toggleItem(catId, itemId){
+  const cat = state.categories.find(c=>c.id===catId);
+  const item = cat.items.find(i=>i.id===itemId);
+  item.done = !item.done;
+  render(); persist();
+}
+function updateItemName(catId, itemId, name){
+  const cat = state.categories.find(c=>c.id===catId);
+  const item = cat.items.find(i=>i.id===itemId);
+  item.name = name; persist();
+}
+function deleteItem(catId, itemId){
+  const cat = state.categories.find(c=>c.id===catId);
+  cat.items = cat.items.filter(i=>i.id!==itemId);
+  delete fileBytesStore[itemId];
+  render(); persist();
+}
+function addItem(catId, name){
+  if(!name.trim()) return;
+  const cat = state.categories.find(c=>c.id===catId);
+  cat.items.push({id:uid(), name:name.trim(), done:false, fileName:"", fileType:"", fileSize:0, compressedNote:"", sbPath:"", syncStatus:""});
+  render(); persist();
+}
+function deleteCategory(catId){
+  const cat = state.categories.find(c=>c.id===catId);
+  cat.items.forEach(i=>delete fileBytesStore[i.id]);
+  state.categories = state.categories.filter(c=>c.id!==catId);
+  render(); persist();
+}
+function addCategory(name){
+  if(!name.trim()) return;
+  state.categories.push({id:uid(), name:name.trim(), items:[]});
+  render(); persist();
+}
+function clearFile(catId, itemId){
+  const cat = state.categories.find(c=>c.id===catId);
+  const item = cat.items.find(i=>i.id===itemId);
+  item.fileName=""; item.fileType=""; item.fileSize=0; item.compressedNote="";
+  item.sbPath=""; item.syncStatus="";
+  delete fileBytesStore[itemId];
+  state.mergedUrl = null;
+  render(); persist();
+}
+function resetMonth(){
+  if(!confirm("ล้างเช็คลิสต์ของเดือนนี้กลับเป็นค่าเริ่มต้น? (ไฟล์บน Supabase จะไม่ถูกลบ แต่จะไม่เชื่อมกับรายการอีก)")) return;
+  Object.keys(fileBytesStore).forEach(k=>delete fileBytesStore[k]);
+  state.categories = buildDefaultData();
+  state.mergedUrl = null;
+  render(); persist();
+}
+
+async function handleFileSelect(evt, catId, itemId){
+  const f = evt.target.files[0];
+  if(!f) return;
+  const cat = state.categories.find(c=>c.id===catId);
+  const item = cat.items.find(i=>i.id===itemId);
+
+  const origBuf = await f.arrayBuffer();
+  let bytes = new Uint8Array(origBuf);
+  let type = f.type; let name = f.name;
+  let compressedNote = "";
+  const originalSize = bytes.length;
+
+  const isImage = type.includes('jpeg') || type.includes('jpg') || type.includes('png') || /\.(jpe?g|png)$/i.test(name);
+  const isPdf = type.includes('pdf') || /\.pdf$/i.test(name);
+
+  item.syncStatus = "pending";
+  render();
+
+  if(isImage && originalSize > IMG_COMPRESS_THRESHOLD){
+    try{
+      const compressed = await compressImage(f);
+      bytes = compressed.bytes; type = compressed.type; name = compressed.name;
+      compressedNote = "บีบอัดจาก " + fmtSize(originalSize) + " เหลือ " + fmtSize(bytes.length);
+    }catch(e){ console.error('compress image failed', e); }
+  } else if(isPdf && originalSize > PDF_COMPRESS_THRESHOLD){
+    try{
+      const compact = await compactPdf(bytes);
+      if(compact.length < bytes.length * 0.97){
+        compressedNote = "บีบอัด PDF จาก " + fmtSize(originalSize) + " เหลือ " + fmtSize(compact.length);
+        bytes = compact;
+      } else {
+        compressedNote = "ไฟล์ PDF นี้บีบอัดเพิ่มไม่ได้มาก (ไฟล์สแกนความละเอียดสูงมักบีบไม่ลงมาก)";
+      }
+    }catch(e){ console.error(e); }
+  }
+
+  fileBytesStore[itemId] = {bytes, type, name};
+  item.fileName = name; item.fileType = type; item.fileSize = bytes.length;
+  item.compressedNote = compressedNote;
+  item.done = true;
+  item.sbPath = "";
+  state.mergedUrl = null;
+  render(); persist();
+
+  if(sbConfigured()){
+    await sbUploadFile(item, bytes, type);
+  } else {
+    item.syncStatus = "";
+    state.sbMsg = "ยังไม่ได้เชื่อมต่อ Supabase — ไฟล์นี้จะอยู่แค่ในเซสชันนี้เท่านั้น";
+    state.sbMsgType = "err";
+    render();
+  }
+}
+
+function computeProgress(){
+  let total=0, done=0;
+  state.categories.forEach(c=>c.items.forEach(i=>{total++; if(i.done) done++;}));
+  return {total, done};
+}
+function countAttached(){
+  let n=0;
+  state.categories.forEach(c=>c.items.forEach(i=>{ if(fileBytesStore[i.id]) n++; }));
+  return n;
+}
+
+async function mergeAll(){
+  state.merging = true; state.mergeError=""; state.mergedUrl = null;
+  render();
+  try{
+    const merged = await PDFLib.PDFDocument.create();
+    let addedAny = false;
+    for(const cat of state.categories){
+      for(const item of cat.items){
+        const f = fileBytesStore[item.id];
+        if(!f) continue;
+        const type = (f.type||"").toLowerCase();
+        const name = (f.name||"").toLowerCase();
+        try{
+          if(type.includes('pdf') || name.endsWith('.pdf')){
+            const src = await PDFLib.PDFDocument.load(f.bytes);
+            const pages = await merged.copyPages(src, src.getPageIndices());
+            pages.forEach(p=>merged.addPage(p));
+            addedAny = true;
+          } else if(type.includes('png') || name.endsWith('.png')){
+            const img = await merged.embedPng(f.bytes);
+            const {width,height} = img.scale(1);
+            const page = merged.addPage([width,height]);
+            page.drawImage(img,{x:0,y:0,width,height});
+            addedAny = true;
+          } else if(type.includes('jpg') || type.includes('jpeg') || name.endsWith('.jpg') || name.endsWith('.jpeg')){
+            const img = await merged.embedJpg(f.bytes);
+            const {width,height} = img.scale(1);
+            const page = merged.addPage([width,height]);
+            page.drawImage(img,{x:0,y:0,width,height});
+            addedAny = true;
+          } else {
+            console.warn('ข้ามไฟล์ที่ไม่รองรับ:', f.name);
+          }
+        }catch(innerErr){ console.error('รวมไฟล์ผิดพลาด:', item.name, innerErr); }
+      }
+    }
+    if(!addedAny){
+      state.mergeError = "ยังไม่มีไฟล์ที่แนบ/โหลดสำเร็จ (รองรับ PDF, JPG, PNG)";
+      state.merging = false; render(); return;
+    }
+    const bytes = await merged.save();
+    const blob = new Blob([bytes], {type:'application/pdf'});
+    state.mergedUrl = URL.createObjectURL(blob);
+  }catch(e){
+    console.error(e);
+    state.mergeError = "รวมไฟล์ไม่สำเร็จ ลองตรวจสอบไฟล์ที่แนบอีกครั้ง";
+  }
+  state.merging = false;
+  render();
+}
+function printMerged(){
+  if(!state.mergedUrl) return;
+  const w = window.open(state.mergedUrl, '_blank');
+  if(w){ w.onload = () => { try{ w.print(); }catch(e){} }; }
+}
+
+function render(){
+  const root = document.getElementById('root');
+  if(!state.loaded){ root.innerHTML = '<div class="loading">กำลังโหลด...</div>'; return; }
+  const {total, done} = computeProgress();
+  const pct = total ? Math.round(done/total*100) : 0;
+  const monthLabel = THAI_MONTHS[state.monthDate.getMonth()] + " " + (state.monthDate.getFullYear()+543);
+  const attachedCount = countAttached();
+  const configured = sbConfigured();
+
+  let html = '';
+  html += '<header>';
+  html += '<div class="title-row"><div><h1>เช็คลิสต์ + รวมเอกสารส่งบัญชี</h1><div class="subtitle">แนบไฟล์ต่อรายการ ไฟล์ใหญ่บีบอัดให้อัตโนมัติ เก็บถาวรบน Supabase Storage แล้วรวมเป็น PDF เดียวเพื่อปริ้นท์</div></div>';
+  html += '<div class="month-picker"><button class="nav-btn" onclick="changeMonth(-1)">‹</button><span>' + monthLabel + '</span><button class="nav-btn" onclick="changeMonth(1)">›</button></div>';
+  html += '</div>';
+  html += '<div class="summary-bar"><div class="summary-track"><div class="summary-fill" style="width:' + pct + '%"></div></div><div class="summary-count">' + done + ' / ' + total + ' รายการ</div></div>';
+
+  html += '<div class="sb-panel">';
+  html += '<div class="sb-head" onclick="toggleSbPanel()"><span><span class="status-dot ' + (configured?'on':'off') + '"></span><span class="sb-title">Supabase sync ' + (configured ? ('(bucket: ' + escapeHtml(state.sb.bucket) + ')') : '(ยังไม่ได้เชื่อมต่อ)') + '</span></span><span>' + (state.sbPanelOpen?'▲':'▼') + '</span></div>';
+  if(state.sbPanelOpen){
+    html += '<div class="sb-body">';
+    html += '<input placeholder="Project URL เช่น https://xxxxx.supabase.co" value="' + escapeAttr(state.sb.url) + '" oninput="updateSbField(\'url\', this.value)">';
+    html += '<input type="password" placeholder="anon public key" value="' + escapeAttr(state.sb.anonKey) + '" oninput="updateSbField(\'anonKey\', this.value)">';
+    html += '<div class="sb-row"><input placeholder="ชื่อ bucket เช่น accounting-docs" value="' + escapeAttr(state.sb.bucket) + '" oninput="updateSbField(\'bucket\', this.value)"><input placeholder="โฟลเดอร์ย่อย (ไม่บังคับ)" value="' + escapeAttr(state.sb.folder) + '" oninput="updateSbField(\'folder\', this.value)"></div>';
+    html += '<button onclick="submitSbSettings()">บันทึกและทดสอบเชื่อมต่อ</button>';
+    if(state.sbMsg){ html += '<div class="sb-msg ' + (state.sbMsgType==='ok'?'ok':'err') + '">' + escapeHtml(state.sbMsg) + '</div>'; }
+    html += '<div class="sb-help">ตั้งค่าครั้งแรกใน Supabase: 1) สร้าง bucket ชื่อเดียวกับที่กรอกไว้ (แนะนำตั้งเป็น Private) 2) รัน SQL ด้านล่างใน SQL editor เพื่ออนุญาตให้ anon key อ่าน/เขียนเฉพาะ bucket นี้ 3) เอา Project URL กับ anon public key จาก Settings → API มากรอก</div>';
+    html += '<div class="sb-sql">create policy "app_access_' + escapeHtml(state.sb.bucket||'bucket') + '"\non storage.objects for all to anon\nusing (bucket_id = \'' + escapeHtml(state.sb.bucket||'accounting-docs') + '\')\nwith check (bucket_id = \'' + escapeHtml(state.sb.bucket||'accounting-docs') + '\');</div>';
+    html += '<div class="sb-help">ขนาดไฟล์: ค่าเริ่มต้นของ Supabase มักจำกัดไฟล์ละ ~50MB (ปรับเพิ่มได้ที่ตั้งค่า bucket หรืออัปเกรดแพลน) และพื้นที่รวมนับตามปริมาณจริงที่ใช้ ไม่มีปัญหาประวัติไฟล์สะสมแบบ Git</div>';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  if(!configured){
+    html += '<div class="note-box">📎 ยังไม่ได้เชื่อมต่อ Supabase — ไฟล์ที่แนบจะอยู่แค่ในเซสชันนี้ กดที่แถบ "Supabase sync" ด้านบนเพื่อกรอกข้อมูลเชื่อมต่อ</div>';
+  }
+  html += '</header>';
+
+  state.categories.forEach(cat=>{
+    html += '<div class="category">';
+    html += '<div class="cat-tab">' + escapeHtml(cat.name) + '<button class="del-cat" onclick="deleteCategory(\'' + cat.id + '\')" title="ลบหมวดนี้">✕</button></div>';
+    html += '<div class="items">';
+    if(cat.items.length===0){ html += '<div class="empty-note">ยังไม่มีรายการในหมวดนี้</div>'; }
+    cat.items.forEach(item=>{
+      const hasFile = !!fileBytesStore[item.id];
+      html += '<div class="item-row ' + (item.done?'done':'') + '">';
+      if(item.done){
+        html += '<div class="stamp">' + (item.syncStatus==='synced' ? 'ซิงก์แล้ว' : (hasFile ? 'แนบแล้ว' : 'ติ๊กแล้ว')) + '</div>';
+      }
+      html += '<button class="check-btn ' + (item.done?'done':'') + '" onclick="toggleItem(\'' + cat.id + '\',\'' + item.id + '\')">' + (item.done?'✓':'') + '</button>';
+      html += '<div class="item-body">';
+      html += '<input class="item-name-input" value="' + escapeAttr(item.name) + '" onchange="updateItemName(\'' + cat.id + '\',\'' + item.id + '\', this.value)">';
+      html += '<div class="file-row">';
+      html += '<label class="file-btn">' + (item.fileName ? 'เปลี่ยนไฟล์' : 'แนบไฟล์') + '<input type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" style="display:none" onchange="handleFileSelect(event,\'' + cat.id + '\',\'' + item.id + '\')"></label>';
+      if(item.fileName){
+        html += '<span class="file-name" title="' + escapeAttr(item.fileName) + '">📎 ' + escapeHtml(item.fileName) + '</span>';
+        if(item.fileSize) html += '<span class="file-size">(' + fmtSize(item.fileSize) + ')</span>';
+        let tag = '';
+        if(item.syncStatus==='synced') tag = '<span class="file-tag synced">Supabase ✓</span>';
+        else if(item.syncStatus==='pending') tag = '<span class="file-tag pending">กำลังประมวลผล/ซิงก์...</span>';
+        else if(item.syncStatus==='error') tag = '<span class="file-tag error">ซิงก์ไม่สำเร็จ</span>';
+        else if(!hasFile && item.sbPath) tag = '<span class="file-tag pending">กำลังโหลดจาก Supabase...</span>';
+        html += tag;
+        html += '<button class="clear-file" onclick="clearFile(\'' + cat.id + '\',\'' + item.id + '\')">ลบ</button>';
+        if(item.compressedNote) html += '<span class="compress-note">🗜 ' + escapeHtml(item.compressedNote) + '</span>';
+      }
+      html += '</div></div>';
+      html += '<button class="del-item" onclick="deleteItem(\'' + cat.id + '\',\'' + item.id + '\')">✕</button>';
+      html += '</div>';
+    });
+    html += '<div class="add-item-row"><input placeholder="+ เพิ่มรายการเอกสาร..." onkeydown="if(event.key===\'Enter\'){addItem(\'' + cat.id + '\', this.value); this.value=\'\';}"><button onclick="const inp=this.previousElementSibling; addItem(\'' + cat.id + '\', inp.value); inp.value=\'\';">เพิ่ม</button></div>';
+    html += '</div></div>';
+  });
+
+  html += '<div class="add-cat-row"><input id="newCatInput" placeholder="+ เพิ่มหมวดหมู่ใหม่..." onkeydown="if(event.key===\'Enter\'){addCategory(this.value); this.value=\'\';}"><button onclick="const inp=document.getElementById(\'newCatInput\'); addCategory(inp.value); inp.value=\'\';">เพิ่มหมวด</button></div>';
+
+  html += '<div class="merge-panel">';
+  html += '<h2>รวมเป็นไฟล์เดียว</h2>';
+  html += '<div class="merge-status">มีไฟล์พร้อมใช้งาน ' + attachedCount + ' รายการ (เรียงตามลำดับหมวด/รายการด้านบน)</div>';
+  html += '<div class="merge-actions"><button class="btn-merge" ' + (state.merging?'disabled':'') + ' onclick="mergeAll()">' + (state.merging?'กำลังรวม...':'📎 รวมไฟล์ทั้งหมดเป็น PDF') + '</button></div>';
+  if(state.mergeError){ html += '<div class="merge-status" style="color:var(--stamp-red);margin-top:8px;">' + escapeHtml(state.mergeError) + '</div>'; }
+  if(state.mergedUrl){
+    html += '<div class="result-box">';
+    html += '<a class="download-link" href="' + state.mergedUrl + '" download="เอกสารส่งบัญชี-' + monthKey(state.monthDate) + '.pdf">⬇ ดาวน์โหลด PDF รวม</a>';
+    html += '<button class="btn-merge" onclick="printMerged()" style="background:var(--ink);">🖨 เปิดเพื่อปริ้นท์</button>';
+    html += '<div class="print-hint">ถ้าปุ่มปริ้นท์ไม่เปิดหน้าต่างใหม่ (มือถือบางรุ่นบล็อก popup) ให้กดดาวน์โหลดแล้วเปิดไฟล์ในเครื่องเพื่อสั่งพิมพ์แทน</div>';
+    html += '<embed class="pdf-preview" src="' + state.mergedUrl + '" type="application/pdf">';
+    html += '</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="toolbar"><button class="btn-reset" onclick="resetMonth()">ล้างค่าเดือนนี้</button></div>';
+
+  root.innerHTML = html;
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s){ return escapeHtml(s); }
+
+init();
+</script>
+</body>
+</html>
