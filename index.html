@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>เช็คลิสต์ + รวมเอกสารส่งบัญชี (Supabase sync)</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="favicon-32.png" sizes="32x32">
+<meta name="apple-mobile-web-app-title" content="Accounting Docs">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
@@ -160,20 +165,49 @@ let state = {
   sbMsgType: ""
 };
 
-async function loadJSON(key){
-  try{ const res = await window.storage.get(key, false); if(res && res.value) return JSON.parse(res.value); }
-  catch(e){}
-  return null;
+// Connection settings (URL/anon key/bucket) stay device-local via localStorage.
+// Deliberately NOT synced through Supabase itself: this repo is public, so we
+// avoid ever writing the anon key into any file that could end up in the repo.
+function lsGet(key){
+  try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : null; }
+  catch(e){ console.error("localStorage read failed", key, e); return null; }
 }
-async function saveJSON(key, obj){
-  try{ await window.storage.set(key, JSON.stringify(obj), false); }
-  catch(e){ console.error("save failed", key, e); }
+function lsSet(key, obj){
+  try{ localStorage.setItem(key, JSON.stringify(obj)); }
+  catch(e){ console.error("localStorage write failed", key, e); }
 }
-async function loadMonth(key){ return await loadJSON('checklist:' + key); }
-async function saveMonth(key, categories){ await saveJSON('checklist:' + key, categories); }
+async function loadSbSettings(){ const s = lsGet('supabase-settings'); if(s) state.sb = Object.assign(state.sb, s); }
+async function saveSbSettings(){ lsSet('supabase-settings', state.sb); }
+
+// Checklist metadata (item names, done flags, which file is attached) is stored
+// in Supabase alongside the documents themselves, as a small JSON file. This is
+// what makes the checklist show the same thing on every device, not just files.
+function metaPathFor(key){
+  const folder = state.sb.folder ? state.sb.folder.replace(/^\/|\/$/g,'') + '/' : '';
+  return folder + '_meta/' + key + '.json';
+}
+async function loadMonth(key){
+  if(sbConfigured()){
+    try{
+      const res = await fetch(sbObjectUrl(metaPathFor(key)), {headers: sbHeaders()});
+      if(res.ok){ const categories = JSON.parse(await res.text()); lsSet('checklist:' + key, categories); return categories; }
+    }catch(e){ console.error('load month from Supabase failed', e); }
+  }
+  return lsGet('checklist:' + key); // offline/local fallback if Supabase isn't set up yet
+}
+async function saveMonth(key, categories){
+  lsSet('checklist:' + key, categories); // instant local cache, works even if offline
+  if(sbConfigured()){
+    try{
+      await fetch(sbObjectUrl(metaPathFor(key)), {
+        method:'POST',
+        headers: Object.assign(sbHeaders('application/json'), {'x-upsert':'true'}),
+        body: JSON.stringify(categories)
+      });
+    }catch(e){ console.error('save month to Supabase failed', e); }
+  }
+}
 async function persist(){ await saveMonth(monthKey(state.monthDate), state.categories); }
-async function loadSbSettings(){ const s = await loadJSON('supabase-settings'); if(s) state.sb = Object.assign(state.sb, s); }
-async function saveSbSettings(){ await saveJSON('supabase-settings', state.sb); }
 function sbConfigured(){ return !!(state.sb.url && state.sb.anonKey && state.sb.bucket); }
 function sbApiBase(){ return state.sb.url.replace(/\/$/,'') + '/storage/v1'; }
 function sbHeaders(contentType){
