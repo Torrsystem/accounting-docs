@@ -159,7 +159,7 @@ let state = {
   mergedUrl: null,
   merging:false,
   mergeError:"",
-  sb: {url:"", anonKey:"", bucket:"accounting-docs", folder:"เอกสารบัญชี"},
+  sb: {url:"https://yxmgcuzimibubawmeawc.supabase.co", anonKey:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl4bWdjdXppbWlidWJhd21lYXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NTAzNjUsImV4cCI6MjA5NzQyNjM2NX0.iGakFs5AIJsOguM9O0A5NFYBH1sxQWZbYPoK9j-vv8M", bucket:"accounting-docs", folder:"เอกสารบัญชี"},
   sbPanelOpen: false,
   sbMsg: "",
   sbMsgType: ""
@@ -479,7 +479,12 @@ async function mergeAll(){
     let addedAny = false;
     for(const cat of state.categories){
       for(const item of cat.items){
-        const f = fileBytesStore[item.id];
+        let f = fileBytesStore[item.id];
+        if(!f && item.sbPath){
+          // not loaded into memory yet (e.g. merge clicked before background sync finished) — fetch it now
+          await sbFetchFile(item);
+          f = fileBytesStore[item.id];
+        }
         if(!f) continue;
         const type = (f.type||"").toLowerCase();
         const name = (f.name||"").toLowerCase();
