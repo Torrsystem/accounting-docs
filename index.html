@@ -14,10 +14,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
   :root{
-    --ink:#25324A; --paper:#FAF7F1; --paper2:#FFFEFB;
-    --kraft:#C9A66B; --kraft-dark:#7A5D30;
-    --stamp-red:#A73529; --stamp-green:#2F5C42;
-    --line:#E1DCCE; --muted:#5F5749;
+    --ink:#3A2E1C; --paper:#F2ECDA; --paper2:#FAF7EE;
+    --kraft:#8A6D3B; --kraft-dark:#5C4A26;
+    --stamp-red:#A13B2E; --stamp-green:#5C4A26;
+    --line:#E3DAC0; --muted:#6B5B3E;
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans Thai','IBM Plex Mono',sans-serif;-webkit-font-smoothing:antialiased;}
@@ -33,7 +33,9 @@
   .summary-track{flex:1;height:6px;background:var(--line);border-radius:3px;overflow:hidden;}
   .summary-fill{height:100%;background:var(--stamp-green);transition:width .3s ease;}
   .summary-count{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--ink);white-space:nowrap;}
-  .note-box{background:#FFF7E8;border:1px solid var(--kraft);border-radius:4px;padding:8px 10px;font-size:12px;color:var(--kraft-dark);line-height:1.5;}
+  .note-box{background:#EFE7D2;border:1px solid var(--kraft);border-radius:4px;padding:8px 10px;font-size:12px;color:var(--kraft-dark);line-height:1.5;}
+  .upload-warning{background:var(--kraft-dark);color:#fff;border-radius:4px;padding:10px 12px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;animation:pulse-warn 1.4s infinite;}
+  @keyframes pulse-warn{0%,100%{opacity:1;}50%{opacity:0.78;}}
 
   .sb-panel{background:var(--paper2);border:1.5px solid var(--ink);border-radius:6px;padding:12px;margin-bottom:4px;}
   .sb-head{display:flex;align-items:center;justify-content:space-between;cursor:pointer;}
@@ -70,9 +72,9 @@
   .file-name{font-size:11.5px;color:var(--stamp-green);font-family:'IBM Plex Mono',monospace;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .file-size{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;}
   .file-tag{font-size:10px;font-family:'IBM Plex Mono',monospace;padding:1px 6px;border-radius:8px;}
-  .file-tag.synced{background:#E4EFE7;color:var(--stamp-green);}
-  .file-tag.pending{background:#FBEEDD;color:var(--kraft-dark);}
-  .file-tag.error{background:#F6E1DE;color:var(--stamp-red);}
+  .file-tag.synced{background:#E7E2CD;color:var(--stamp-green);}
+  .file-tag.pending{background:#F3E9CE;color:var(--kraft-dark);}
+  .file-tag.error{background:#F3DEDA;color:var(--stamp-red);}
   .compress-note{width:100%;font-size:10.5px;color:var(--kraft-dark);font-style:italic;}
   .clear-file{background:none;border:none;color:var(--stamp-red);font-size:12px;cursor:pointer;padding:0 2px;}
   .del-item{flex:none;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:4px;}
@@ -93,7 +95,7 @@
   .merge-actions{display:flex;gap:10px;flex-wrap:wrap;}
   .btn-merge{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;background:var(--stamp-green);color:#fff;border:none;border-radius:3px;padding:10px 16px;cursor:pointer;}
   .btn-merge:disabled{background:var(--line);color:var(--muted);cursor:not-allowed;}
-  .result-box{margin-top:14px;padding:12px;border:1.5px dashed var(--stamp-green);border-radius:4px;background:#F2F7F3;}
+  .result-box{margin-top:14px;padding:12px;border:1.5px dashed var(--stamp-green);border-radius:4px;background:#F0EAD6;}
   .result-box a.download-link{display:inline-block;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;background:var(--ink);color:var(--paper);border-radius:3px;padding:9px 14px;text-decoration:none;margin-right:8px;}
   .result-box .print-hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5;}
   embed.pdf-preview{width:100%;height:420px;border:1px solid var(--line);border-radius:4px;margin-top:10px;}
@@ -145,7 +147,7 @@ function buildDefaultData(){
     items: c.items.map(name => ({
       id: uid(), name, done:false,
       fileName:"", fileType:"", fileSize:0, compressedNote:"",
-      sbPath:"", syncStatus:""
+      sbPath:"", syncStatus:"", syncError:""
     }))
   }));
 }
@@ -252,35 +254,58 @@ async function compactPdf(bytes){
 }
 
 // ---------- Supabase Storage (simple REST, binary in/out) ----------
-let sbUploadQueue = Promise.resolve();
+let pendingUploads = 0;
 function sbUploadFile(item, bytes, mimeType){
-  sbUploadQueue = sbUploadQueue.then(() => sbUploadFileInner(item, bytes, mimeType));
-  return sbUploadQueue;
+  return sbUploadFileInner(item, bytes, mimeType);
+}
+async function sbPutOnce(url, bytes, mimeType){
+  const blobBody = new Blob([bytes], {type: mimeType || 'application/octet-stream'});
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: Object.assign(sbHeaders(mimeType || 'application/octet-stream'), {'x-upsert':'true'}),
+    body: blobBody
+  });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error('HTTP ' + res.status + ': ' + t.slice(0,200));
+  }
+  return res;
 }
 async function sbUploadFileInner(item, bytes, mimeType){
-  item.syncStatus = "pending"; render();
+  item.syncStatus = "pending";
+  item.syncError = "";
+  pendingUploads++;
+  render();
+  const path = sbPathFor(item);
+  const url = sbObjectUrl(path);
   try{
-    const path = sbPathFor(item);
-    const url = sbObjectUrl(path);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: Object.assign(sbHeaders(mimeType || 'application/octet-stream'), {'x-upsert':'true'}),
-      body: bytes
-    });
-    if(!res.ok){
-      const t = await res.text();
-      throw new Error('HTTP ' + res.status + ': ' + t.slice(0,150));
+    try{
+      await sbPutOnce(url, bytes, mimeType);
+    }catch(firstErr){
+      console.warn("upload attempt 1 failed, retrying once:", firstErr);
+      await new Promise(r => setTimeout(r, 1200));
+      await sbPutOnce(url, bytes, mimeType);
     }
     item.sbPath = path;
     item.syncStatus = "synced";
   }catch(e){
-    console.error("Supabase upload error", e);
+    console.error("Supabase upload error (after retry)", e);
     item.syncStatus = "error";
+    item.syncError = e.message;
     state.sbMsg = "อัปโหลดไป Supabase ไม่สำเร็จ: " + e.message;
     state.sbMsgType = "err";
   }
+  pendingUploads--;
   render(); persist();
 }
+
+window.addEventListener('beforeunload', function(e){
+  if(pendingUploads > 0){
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
 
 async function sbFetchFile(item){
   if(!item.sbPath) return null;
@@ -375,7 +400,7 @@ function deleteItem(catId, itemId){
 function addItem(catId, name){
   if(!name.trim()) return;
   const cat = state.categories.find(c=>c.id===catId);
-  cat.items.push({id:uid(), name:name.trim(), done:false, fileName:"", fileType:"", fileSize:0, compressedNote:"", sbPath:"", syncStatus:""});
+  cat.items.push({id:uid(), name:name.trim(), done:false, fileName:"", fileType:"", fileSize:0, compressedNote:"", sbPath:"", syncStatus:"", syncError:""});
   render(); persist();
 }
 function deleteCategory(catId){
@@ -388,6 +413,18 @@ function addCategory(name){
   if(!name.trim()) return;
   state.categories.push({id:uid(), name:name.trim(), items:[]});
   render(); persist();
+}
+async function retryUpload(catId, itemId){
+  const cat = state.categories.find(c=>c.id===catId);
+  const item = cat.items.find(i=>i.id===itemId);
+  const f = fileBytesStore[itemId];
+  if(!f){
+    state.sbMsg = "ไม่มีไฟล์ในหน่วยความจำแล้ว (อาจเพิ่งเปิดหน้าใหม่) กรุณาแนบไฟล์นี้ใหม่อีกครั้ง";
+    state.sbMsgType = "err";
+    render();
+    return;
+  }
+  await sbUploadFile(item, f.bytes, f.type);
 }
 function clearFile(catId, itemId){
   const cat = state.categories.find(c=>c.id===catId);
@@ -547,6 +584,9 @@ function render(){
   html += '<div class="month-picker"><button class="nav-btn" onclick="changeMonth(-1)">‹</button><span>' + monthLabel + '</span><button class="nav-btn" onclick="changeMonth(1)">›</button></div>';
   html += '</div>';
   html += '<div class="summary-bar"><div class="summary-track"><div class="summary-fill" style="width:' + pct + '%"></div></div><div class="summary-count">' + done + ' / ' + total + ' รายการ</div></div>';
+  if(pendingUploads > 0){
+    html += '<div class="upload-warning">⏳ กำลังอัปโหลด ' + pendingUploads + ' ไฟล์ขึ้น Supabase — อย่าเพิ่งปิดหน้านี้จนกว่าจะขึ้น "Supabase ✓" ครบทุกไฟล์</div>';
+  }
 
   html += '<div class="sb-panel">';
   html += '<div class="sb-head" onclick="toggleSbPanel()"><span><span class="status-dot ' + (configured?'on':'off') + '"></span><span class="sb-title">Supabase sync ' + (configured ? ('(bucket: ' + escapeHtml(state.sb.bucket) + ')') : '(ยังไม่ได้เชื่อมต่อ)') + '</span></span><span>' + (state.sbPanelOpen?'▲':'▼') + '</span></div>';
@@ -591,11 +631,12 @@ function render(){
         let tag = '';
         if(item.syncStatus==='synced') tag = '<span class="file-tag synced">Supabase ✓</span>';
         else if(item.syncStatus==='pending') tag = '<span class="file-tag pending">กำลังประมวลผล/ซิงก์...</span>';
-        else if(item.syncStatus==='error') tag = '<span class="file-tag error">ซิงก์ไม่สำเร็จ</span>';
+        else if(item.syncStatus==='error') tag = '<span class="file-tag error" title="' + escapeAttr(item.syncError||'') + '">ซิงก์ไม่สำเร็จ</span> <button class="clear-file" onclick="retryUpload(\'' + cat.id + '\',\'' + item.id + '\')">ลองใหม่</button>';
         else if(!hasFile && item.sbPath) tag = '<span class="file-tag pending">กำลังโหลดจาก Supabase...</span>';
         html += tag;
         html += '<button class="clear-file" onclick="clearFile(\'' + cat.id + '\',\'' + item.id + '\')">ลบ</button>';
         if(item.compressedNote) html += '<span class="compress-note">🗜 ' + escapeHtml(item.compressedNote) + '</span>';
+        if(item.syncStatus==='error' && item.syncError) html += '<span class="compress-note" style="color:var(--stamp-red);">⚠ ' + escapeHtml(item.syncError) + '</span>';
       }
       html += '</div></div>';
       html += '<button class="del-item" onclick="deleteItem(\'' + cat.id + '\',\'' + item.id + '\')">✕</button>';
